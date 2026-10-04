@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101916">
+  <meta name="coach-csrf" content="{{CSRF_TOKEN}}">
+  <title>Physical Chess Coach</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="masthead">
+      <div class="brand-mark" aria-hidden="true">♞</div>
+      <div class="brand-text">
+        <span class="eyebrow">LIVE BOARD · LOCAL ENGINE</span>
+        <h1>Physical Chess Coach</h1>
+      </div>
+      <div class="header-status">
+        <span id="connection-dot" class="status-dot"></span>
+        <span id="connection-text">Connecting to camera session</span>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <main class="conversation-panel" aria-label="Coach conversation">
+        <section class="turn-banner" aria-live="polite">
+          <div>
+            <span class="eyebrow">CURRENT POSITION</span>
+            <h2 id="turn-title">Waiting for the board</h2>
+          </div>
+          <span id="turn-tag" class="turn-tag">SETUP</span>
+        </section>
+
+        <section class="action-card" aria-live="polite">
+          <div class="action-icon" aria-hidden="true">↗</div>
+          <div class="action-content">
+            <span class="eyebrow">YOUR NEXT PHYSICAL ACTION</span>
+            <p id="instruction">Check the physical pieces against the expected position.</p>
+            <div class="move-check-controls">
+              <button id="confirm-button" type="button" class="primary-button" disabled hidden>Confirm physical position</button>
+              <button id="check-move-button" type="button" class="primary-button" disabled>Check my move</button>
+              <span id="move-check-status" role="status">Confirm the starting position first.</span>
+            </div>
+          </div>
+        </section>
+
+        <div class="conversation-heading">
+          <div>
+            <span class="eyebrow">ASK ABOUT THIS POSITION</span>
+            <h2>Coach chat</h2>
+          </div>
+          <span id="thinking-indicator" class="thinking-indicator" hidden>Thinking…</span>
+        </div>
+
+        <div class="suggestions" aria-label="Suggested questions">
+          <button type="button" class="chip" data-question="What is the best move here, and why?">Best move and why</button>
+          <button type="button" class="chip" data-question="What is the main threat in this position?">Main threat</button>
+          <button type="button" class="chip" data-question="Explain the last move in simple terms.">Explain last move</button>
+          <button type="button" class="chip" data-question="Give me one plan for the next few moves.">A simple plan</button>
+        </div>
+
+        <div id="messages" class="messages" aria-live="polite" aria-relevant="additions text">
+          <div class="welcome-message">
+            <div class="welcome-icon" aria-hidden="true">♙</div>
+            <div>
+              <strong>Ask as you play.</strong>
+              <p>I can explain moves and plans from the recorded position. Check that the physical board matches the expected board first.</p>
+            </div>
+          </div>
+        </div>
+
+        <form id="chat-form" class="composer">
+          <label class="sr-only" for="question">Ask the coach</label>
+          <textarea id="question" rows="2" maxlength="1500" placeholder="Ask about this position…" autocomplete="off"></textarea>
+          <div class="composer-footer">
+            <div class="voice-controls">
+              <button id="mic-button" type="button" class="icon-button" disabled title="Local voice input unavailable" aria-label="Record a voice question">🎙</button>
+              <label class="voice-toggle"><input id="voice-replies" type="checkbox"> Read replies aloud</label>
+              <button id="stop-speaking" type="button" class="stop-speaking" hidden>Stop speaking</button>
+            </div>
+            <button id="send-button" type="submit" class="primary-button">Send question <span aria-hidden="true">→</span></button>
+          </div>
+          <p id="voice-status" class="composer-note">Microphone is off. Text chat is always available.</p>
+        </form>
+      </main>
+
+      <aside class="position-panel" aria-label="Board and game controls">
+        <div class="panel-heading">
+          <div>
+            <span class="eyebrow">LIVE POSITION</span>
+            <h2>Board check</h2>
+          </div>
+          <span id="board-live-pill" class="live-pill">CAMERA</span>
+        </div>
+        <p id="board-explainer" class="board-explainer">Make one complete move, clear your hand, then press Check my move. Compare the camera with Expected pieces when checking setup or recovery.</p>
+        <div class="board-tabs" role="tablist" aria-label="Board views">
+          <button id="camera-tab" type="button" role="tab" aria-selected="true">Physical camera</button>
+          <button id="expected-tab" type="button" role="tab" aria-selected="false">Expected pieces</button>
+        </div>
+        <div id="camera-board" class="board-display camera-board" role="tabpanel">
+          <img id="board-image" alt="Rectified camera view of the physical chessboard" hidden>
+          <div id="board-placeholder" class="board-placeholder">Waiting for a reliable camera image…</div>
+        </div>
+        <div id="expected-board" class="board-display expected-board" role="tabpanel" hidden>
+          <div id="digital-board" class="digital-board" aria-label="Expected chess position, White at the bottom"></div>
+        </div>
+
+        <div class="position-meta">
+          <div class="meta-row"><span>Human side</span><strong id="human-side">—</strong></div>
+          <div class="meta-row"><span>Engine</span><strong id="engine-status">—</strong></div>
+          <div class="meta-row"><span>Detection</span><strong id="detection-status">—</strong></div>
+          <div class="meta-row"><span>Last feedback</span><strong id="feedback">—</strong></div>
+          <div class="meta-row"><span>Moves</span><strong id="moves">No moves yet</strong></div>
+        </div>
+        <details class="fen-details"><summary>Current FEN</summary><code id="fen">—</code></details>
+
+        <section id="recovery-panel" class="recovery-panel" hidden>
+          <span class="eyebrow">POSITION CHECK REQUIRED</span>
+          <p id="recovery-prompt"></p>
+          <button id="cancel-button" type="button" class="text-button">Cancel</button>
+        </section>
+
+        <section class="controls-panel">
+          <span class="eyebrow">GAME CONTROLS</span>
+          <div class="control-grid">
+            <button type="button" data-action="resync">Resync</button>
+            <button type="button" data-action="undo">Undo move</button>
+            <button type="button" data-action="new">New game</button>
+            <button type="button" data-action="save">Save now</button>
+          </div>
+          <form id="manual-form" class="manual-form">
+            <label for="manual-move">Only if the camera misses a move</label>
+            <div><input id="manual-move" type="text" inputmode="text" maxlength="80" placeholder="pawn from e7 to e5" aria-describedby="manual-hint"><button type="submit">Recover</button></div>
+            <small id="manual-hint">Describe the completed move, such as “pawn from e7 to e5,” then confirm the physical board.</small>
+          </form>
+          <div id="special-controls" class="special-controls" hidden>
+            <span class="eyebrow">MOVE CONFIRMATION</span>
+            <div id="promotion-controls" hidden>
+              <span>Promotion:</span>
+              <button type="button" data-promotion="1">Queen</button>
+              <button type="button" data-promotion="2">Rook</button>
+              <button type="button" data-promotion="3">Bishop</button>
+              <button type="button" data-promotion="4">Knight</button>
+            </div>
+            <button id="rook-confirm" type="button" hidden>Confirm rook move</button>
+          </div>
+          <p id="action-status" role="status"></p>
+        </section>
+      </aside>
+    </div>
+    <footer>Runs on this computer · Camera, board tracking, and Stockfish stay local</footer>
+  </div>
+</body>
+</html>
