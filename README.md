@@ -1,276 +1,556 @@
-# Physical Chess Coach
+# ChessAICoach
 
-This app watches a physical chessboard through a webcam. When you press
-**Check my move**, it detects settled square changes, accepts one move that fits the current legal position, and uses a
-local Stockfish engine to coach a game. The human plays from the **top of the
-rotated board image**; the coach plays from the bottom. On the coach's turn,
-the app shows a move to make on the physical board. On the human's turn, it
-reviews the accepted move and shows feedback. It never moves a piece itself.
+Learn chess on a **physical board** with camera move checks, local Stockfish analysis, and a coach you can ask questions as you play.
 
-Small dark marks on pale pieces can improve camera contrast. The move detector
-compares changes in local contours, including those marks, against the confirmed
-position. Piece names come from that recorded position and legal moves; identical
-marks do not visually identify a pawn, knight, or another piece type.
+Move a piece, clear your hand, and press **Check my move**. The app compares the camera view with the last confirmed position, records a matching legal move, and tells you what to do next. Instructions use ordinary language such as **“White knight from g1 to f3.”** Text explanations are the primary interface; microphone input and spoken replies are optional.
 
-**Save now** saves the game and local camera diagnostics, including the accepted
-reference image, the current view, board corners, and square scores. These help
-reproduce a missed move without replacing the confirmed reference.
+![ChessAICoach showing a recorded Black pawn move and the next White knight move](docs/screenshots/move-recorded.jpg)
 
-The game is saved as PGN after every accepted move. Resync, undo, and new-game
-controls provide a way to recover when the camera and physical board diverge.
+*An actual session: Black's pawn from e7 to e5 has been recorded, and the coach asks for White's knight from g1 to f3.*
 
-**Text is the primary coaching interface.** Open `http://127.0.0.1:8765` in
-Codex's built-in browser after starting the app. Ask about a better move, why
-it works, your last move, a candidate move, or chess concepts. Follow-up
-questions use the current position and the preceding recommendation.
-Optional voice uses the same chat and keeps every explanation visible.
+## Features
 
-## Set up and run on macOS
+- **Physical board play:** a webcam view is rectified into a board view, with tracking and manual corner calibration.
+- **One button per move:** each **Check my move** request checks fresh, settled frames and records at most one move.
+- **Legal position tracking:** ordinary moves, captures, castling, en passant, and promotion candidates are checked against the recorded position and turn.
+- **Plain language guidance:** moves, move history, and recovery input use piece names and squares.
+- **Local chess analysis:** Stockfish suggests moves, reviews your moves, and supplies analysis for coaching.
+- **Conversational explanations:** an optional local Ollama model answers follow-up questions using chess evidence and recent conversation.
+- **Optional voice:** local whisper.cpp transcription and macOS read-aloud, with editable transcripts and visible text replies.
+- **Recovery and persistence:** resync, undo, new game, manual recovery, automatic PGN saves, and camera diagnostics.
 
-From this directory:
+**Current platform:** macOS. The camera uses OpenCV's AVFoundation backend, and the bundled voice setup uses macOS speech tools. Python 3.11 was used for verification. Windows and Linux would require camera and speech integration changes.
+
+## Contents
+
+- [Screenshots](#screenshots)
+- [Requirements](#requirements)
+- [Quick start](#quick-start)
+- [Camera setup and calibration](#camera-setup-and-calibration)
+- [Playing a game](#playing-a-game)
+- [Talking to the coach](#talking-to-the-coach)
+- [Optional voice](#optional-voice)
+- [Controls and recovery](#controls-and-recovery)
+- [Save and resume](#save-and-resume)
+- [Configuration](#configuration)
+- [How recognition works](#how-recognition-works)
+- [Troubleshooting](#troubleshooting)
+- [Local data and privacy](#local-data-and-privacy)
+- [Project structure](#project-structure)
+- [Tests and verification](#tests-and-verification)
+
+## Screenshots
+
+These captures come from the local app and physical board sessions on October 4, 2026. Suggestions and chat replies depend on the current position; the examples shown here are not a fixed script.
+
+<details>
+<summary><strong>Starting position confirmation</strong></summary>
+
+![Setup screen with the Confirm physical position button](docs/screenshots/confirm-position.jpg)
+
+The app waits while you compare the physical board with **Expected pieces**. Confirming records the reference image for that position.
+
+</details>
+
+<details>
+<summary><strong>Conversational coaching</strong></summary>
+
+![Coach chat explaining control of the center in plain language](docs/screenshots/coach-conversation.jpg)
+
+Ask why a move helps, then ask for a simpler explanation or explore another legal move. **Listen** and **Read replies aloud** are available alongside the text.
+
+</details>
+
+<details>
+<summary><strong>Physical board camera view</strong></summary>
+
+![Rectified physical chessboard after White pawn to e4 and Black pawn to e5](docs/screenshots/physical-board.png)
+
+The camera view after the two pawn moves. Dark marks on the pale pieces provide contrast. The image is also part of the captured-board regression test for a dark pawn on a dark square.
+
+</details>
+
+<details>
+<summary><strong>Move history and recovery controls</strong></summary>
+
+![Plain language move history with Resync, Undo move, New game, Save now, and Recover controls](docs/screenshots/game-controls.jpg)
+
+The side panel shows the recorded moves, engine and detection status, and recovery controls. A missed move can be entered as **“pawn from e7 to e5.”**
+
+</details>
+
+## Requirements
+
+| Component | Purpose | Required? |
+| --- | --- | --- |
+| macOS with a graphical desktop | Camera backend and supporting OpenCV windows | Yes |
+| Python 3.11 | Verified Python runtime | Yes |
+| Webcam and physical 8×8 chessboard | Board images and physical play | Yes |
+| NumPy, OpenCV, python-chess | Image processing and legal move validation | Yes; installed by setup |
+| Stockfish | Move suggestions and evaluations | For engine coaching; tracking can run without it |
+| Homebrew | Convenient installation of Stockfish and voice tools | For the bundled dependency installation steps |
+| Ollama and a local model | Flexible conversational wording | Optional; factual explanations are the fallback |
+| whisper.cpp and an English model | Local microphone transcription | Optional |
+| macOS `say` and FFmpeg | Local spoken replies | Optional |
+
+A browser displays the local dashboard. You can use Codex's built-in browser or another browser on the same Mac. The Python process captures the webcam; the dashboard displays its images. No VS Code camera integration or cloud API key is needed.
+
+## Quick start
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/ChanakyaG2004/ChessAICoach.git
+cd ChessAICoach
+```
+
+Install Python and [Homebrew](https://brew.sh/) first if they are not available on your Mac.
+
+### 2. Install the Python dependencies and Stockfish
+
+```bash
+bash scripts/setup.sh
+```
+
+This creates `.venv/`, installs `requirements.txt`, and installs Stockfish when Homebrew is available. If Homebrew is absent, the script prints instructions to provide an engine path.
+
+The equivalent manual steps are:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
 brew install stockfish
-python main.py --top-color black --board-rotation cw
 ```
 
-For this already configured Mac, run `./Start\ Chess\ Coach.command` from
-Codex. It uses the camera orientation tested here. On a fresh checkout,
-`bash scripts/setup.sh` creates the Python environment and installs Stockfish
-through Homebrew when available.
+Stockfish is discovered through standard executable locations. To use another installation, pass `--engine-path /path/to/stockfish` or set `STOCKFISH_EXECUTABLE`.
 
-## Text conversation and optional voice
+### 3. Start the app
 
-The local chat page shows the expected position, the camera board, the current
-physical action, and the conversation. It also offers setup confirmation,
-resync, undo, new game, save, and manual move controls. Leave it open beside
-the physical board while playing.
+The bundled launcher uses the camera orientation tested for this project:
 
-Try:
+```bash
+./Start\ Chess\ Coach.command
+```
 
-- “What is a better move here?”
-- “Why?”
-- “How was my last move?”
+It puts Black at the top of the rotated view and makes Black the human side. In this arrangement, the coach plays White and provides the first move.
+
+For a board already upright in the camera, with White at the bottom and Black at the top:
+
+```bash
+./.venv/bin/python main.py --top-color black --board-rotation none
+```
+
+Choose your orientation using the [camera setup guide](#camera-setup-and-calibration). The launcher accepts extra options, such as `--camera-index 1`, but its side and rotation defaults suit the tested arrangement.
+
+### 4. Open the dashboard and confirm setup
+
+Open **http://127.0.0.1:8765/** on the same Mac. The terminal prints the address when the app starts.
+
+1. Arrange the standard starting position on the physical board.
+2. Check the **Physical camera** view and board outline.
+3. Select **Expected pieces** and compare every physical piece with the displayed position.
+4. Clear your hand and press **Confirm physical position** when it becomes available.
+5. Read **Your next physical action** before moving a piece.
+
+The app also opens **Camera - board outline** and **Physical Chess Coach** windows. Keep the Python process running while using the dashboard. Press `q` in a supporting window to quit and release the camera.
+
+## Camera setup and calibration
+
+### Board visibility
+
+- Keep all four outer corners and all 64 squares in view.
+- Use a stable camera mount and an angle that leaves the playing surface visible around tall pieces.
+- Aim for even lighting; avoid strong glare and deeply shadowed squares.
+- Keep your hand clear while confirming a position or checking a move.
+- Recalibrate after moving the board or camera.
+
+The app requests 1920×1080 capture and a high frame rate. It checks early frames and can request 30 FPS when a higher rate gives severely underexposed images. Actual resolution, frame rate, and brightness are printed at startup and depend on the camera.
+
+### Orientation and human side
+
+`--board-rotation` rotates the rectified image. `--top-color` describes the side at the top **after that rotation** and also selects the human side.
+
+| Camera arrangement | Rotation | Top color / human side |
+| --- | --- | --- |
+| Black already at top, White at bottom | `none` | `black` |
+| White already at top, Black at bottom | `none` | `white` |
+| Black at left, White at right, as in the tested setup | `cw` | `black` |
+
+Other arrangements can use `ccw` or `half`. Inspect the rotated view and compare it with **Expected pieces** before confirming. If `--top-color` is omitted, the terminal asks for it.
+
+For example, to play White with White at the top of an upright camera view:
+
+```bash
+./.venv/bin/python main.py --top-color white --board-rotation none
+```
+
+### Manual corner calibration
+
+If automatic board detection misses the playing surface:
+
+1. Focus **Camera - board outline**.
+2. Press `c`.
+3. Click the four **outer corners of the playing surface**, in any order.
+4. Inspect the new outline and rectified board.
+5. Compare the physical pieces with **Expected pieces**, then confirm the position.
+
+For a fixed setup, you can supply four camera pixel coordinates at launch:
+
+```bash
+./.venv/bin/python main.py --top-color black --board-rotation cw \
+  --corners 560,322 1063,384 1009,883 458,808
+```
+
+These are example coordinates from one capture, not calibration values for every camera. Use corners measured from your own image.
+
+## Playing a game
+
+### The normal move loop
+
+1. **Read the instruction.** The app shows whose turn it is and the next physical action.
+2. **Make one complete move.** On your turn, choose a legal move. On the coach's turn, move the displayed piece yourself.
+3. **Remove your hand.** Let the board settle.
+4. **Press Check my move.** A check uses fresh frames collected after the press.
+5. **Wait for Recorded.** Confirm that the named piece and destination match your move before making another move.
+6. **Read the feedback or ask a question.** Accepted moves are saved, your moves are reviewed, and the next instruction is displayed.
+
+**Moves are recorded only after a check request.** There is no continuous automatic recording while the app is idle. A failed check, no change, or timeout ends the request; correct the problem and press the button again.
+
+You physically move pieces for both sides. The coach gives instructions and never moves a real piece. If you play a different legal move for the coach's side, the app follows the actual recorded move and notes the difference.
+
+### Example opening
+
+With Black as the human side, a session might proceed like this:
+
+| Step | Physical action | Dashboard action |
+| --- | --- | --- |
+| Setup | Arrange all pieces at their starting squares | Confirm physical position |
+| Coach / White | Follow the suggested move, for example pawn from e2 to e4 | Clear your hand, then Check my move |
+| Human / Black | Choose a legal reply, for example pawn from e7 to e5 | Clear your hand, then Check my move |
+| Coach / White | Follow the next suggestion, for example knight from g1 to f3 | Clear your hand, then Check my move |
+
+The engine may suggest different moves in another session or position.
+
+### Special moves
+
+- **Capture:** move the attacking piece and remove the captured piece before checking.
+- **Castling:** move both the king and rook before checking. A rook moved first can resemble an ordinary rook move; complete the castle or explicitly confirm the displayed rook move.
+- **En passant:** remove the captured pawn as part of the complete move before checking.
+- **Promotion:** move the pawn and replace it with the chosen piece, then check and select **Queen**, **Rook**, **Bishop**, or **Knight** when prompted.
+
+The app rejects a clear move by the wrong side and does not update the recorded position for weak, incomplete, or ambiguous evidence.
+
+## Talking to the coach
+
+Type a question and press **Send question**. You can use the suggested prompts or ask in your own words:
+
+- “What is the best move here, and why?”
+- “Why should I move that pawn?”
+- “What does controlling the center mean?”
+- “Explain that more simply.”
+- “Why not move a knight first?”
 - “What if I move my knight to f3?”
-- “What can my opponent do next?”
+- “What is my opponent threatening?”
+- “How was my last move?”
 
-Stockfish supplies the suggested moves and evaluations. The local Ollama model
-writes conversational explanations using the recorded position, verified move
-effects, checked continuations, and recent conversation. It knows the move shown
-on screen, so “why should I move that pawn?” works without first asking for a
-recommendation in chat. Follow-ups such as “explain that more simply” or “why not
-move a knight first?” can explore the idea and compare legal alternatives.
+Stockfish provides move analysis. The conversation layer supplies facts about the position, legal alternatives, and move effects. An optional local language model turns those facts and recent conversation into an answer to your question. Asking a hypothetical question does not play or record a move.
 
-The conversational model defaults to `llama3.1:latest`, already installed on this Mac.
-Set `CHESS_COACH_MODEL` to another installed Ollama model to change it. If the model
-is unavailable or its response fails the evidence checks, the coach uses factual
-explanations, including move purpose and tradeoffs. `--no-language-model` uses
-that fallback directly. No cloud API key is required.
+The coach has access to the currently displayed move and feedback. Replies use recent conversation for follow-ups, while older positions are treated as history. A response that becomes stale because the recorded position changes is marked accordingly.
 
-Voice is **off by default**. Enable it in the page, click the microphone to
-record a short question, then stop recording. Check or edit the transcript
-before sending it. Spoken replies are optional, and you can stop playback.
-Recording begins only when you click the microphone. Allow microphone access
-when Codex/macOS asks. Text chat stays usable if microphone access is denied.
+### Enable local conversational generation
 
-Local speech recognition requires whisper.cpp and an English model:
+Install and open Ollama using its [official quick start](https://docs.ollama.com/quickstart). Download the model configured by this app:
+
+```bash
+ollama pull llama3.1:latest
+ollama ls
+```
+
+Keep Ollama running while using the coach. If no local server is running, start it in a separate terminal:
+
+```bash
+ollama serve
+```
+
+The app calls `http://127.0.0.1:11434/api/chat` and defaults to `llama3.1:latest`. Model files are downloaded separately and are not bundled with this repository. See the [Ollama CLI reference](https://docs.ollama.com/cli) for the download and server commands.
+
+To select another locally installed model, set its exact name **before launching the app**:
+
+```bash
+CHESS_COACH_MODEL=llama3.1:latest ./.venv/bin/python main.py \
+  --top-color black --board-rotation cw
+```
+
+The model's structured response is checked against supplied facts and allowed moves. If Ollama is unavailable, times out, or returns an answer that fails those checks, factual explanations remain available. This validation does not guarantee that every explanation is correct.
+
+To use the factual response path directly:
+
+```bash
+./.venv/bin/python main.py --top-color black --board-rotation cw \
+  --no-language-model
+```
+
+## Optional voice
+
+Voice is **off by default**. Text questions and replies remain available without installing voice dependencies or granting microphone access.
+
+### Install local voice tools
 
 ```bash
 bash scripts/setup_voice.sh
 ```
 
-Speech is transcribed on this Mac; replies use the installed macOS voice.
-The page reports unavailable speech components. Recordings are temporary and
-are removed after processing. Chat history stays in memory for the current
-app session; only the chess game is saved to PGN.
+The macOS setup script installs whisper.cpp and FFmpeg through Homebrew if needed, downloads the English `base.en` model into `models/`, and verifies its checksum. Installation and downloads happen during this explicit setup step. Restart the coach after setup.
 
-Use `--chat-port 8766` if the default port is busy, or `--chat-port 0` for an
-available port (printed at startup). `--no-chat` keeps only the camera windows.
-The server binds to this computer's loopback address and is not published.
+### Ask a spoken question
 
-This Mac has Stockfish 19 installed through Homebrew at
-`/opt/homebrew/bin/stockfish`. If it is installed elsewhere, pass
-`--engine-path /path/to/stockfish` or set `STOCKFISH_EXECUTABLE`. The app
-searches standard Homebrew paths automatically. If Stockfish is unavailable,
-move tracking continues without coaching. Use `--no-engine` to run that way
-intentionally. `--analysis-time 0.25` controls the seconds spent on each
-engine search; the default is 0.25.
+1. Click the microphone button.
+2. Allow microphone access when prompted.
+3. Speak a short question, up to 30 seconds.
+4. Click the microphone again to stop.
+5. Review or edit the transcript in the question box.
+6. Press **Send question**.
 
-On macOS, allow **ChatGPT** under System Settings → Privacy & Security → Camera
-when running through Codex. Camera access from a restricted Codex command can
-still fail with that switch enabled; run the command from Codex with camera
-access outside its restricted command sandbox. The app uses OpenCV camera 0
-by default; use `--camera-index N` for another camera.
+The transcript is not sent as a question until you submit it. Camera access for Python and microphone access for the browser are separate permissions.
 
-The example above matches a camera view with Black on the **left** and White on
-the right. Clockwise rotation puts Black at the top and White at the bottom.
-For a different setup, choose `--board-rotation none|cw|ccw|half` and set
-`--top-color` to the color at the top **after** rotation. The top side is the
-human side. If omitted, `--top-color` is requested in the terminal.
+### Hear a reply
 
-The physical pieces must match the position the program expects before it
-records its first stable image. The app pauses at startup while you check the
-physical setup against **Expected pieces** in the browser (or the FEN in the
-terminal). Clear your hand and click **Confirm physical position**, or press
-`y` in a camera window, when the board outline is reliable. `--assume-setup` skips
-this confirmation only when you have already checked the board. It starts
-from the standard position unless you supply a complete FEN:
+- Click **Listen** on one reply to hear it.
+- Enable **Read replies aloud** to hear new replies automatically.
+- Use **Stop speaking** to stop playback.
 
-```bash
-python main.py --top-color black --board-rotation cw \
-  --fen "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1"
-```
+The server's read-aloud path uses macOS `say` and FFmpeg. A local browser voice can also be used when available. Text remains visible throughout. Custom transcription paths can be set with `WHISPER_EXECUTABLE` and `WHISPER_MODEL_PATH`.
 
-The FEN includes the side to move, castling rights, en passant square, and move
-numbers. The camera does **not** identify every piece in the starting layout.
-Check the physical setup and top color yourself. A legal move is checked
-against that supplied position, not a fully recognized piece map.
+## Controls and recovery
 
-## Play in Codex
+Recovery actions require the physical board to match the displayed target before confirmation. **Expected pieces** shows that target during undo, new game, and manual recovery; the recorded game changes only when the action is confirmed.
 
-Keep the local browser chat open as the main interface. **Physical camera**
-shows the real board, and **Expected pieces** shows the position the app knows.
-During undo, new game, or manual confirmation, Expected pieces shows the target
-position to arrange before confirming. The recorded game remains unchanged
-until confirmation succeeds.
+### Dashboard controls
 
-The two supporting windows are **Camera - board outline** and **Physical Chess
-Coach**. The camera view shows the detected board outline. The coach view shows
-the rectified board with square labels, whose turn it is, the next physical
-action, engine feedback, detection status, recent moves, and the PGN path.
-Keep a window focused when using keys.
+| Control | What to do | Effect |
+| --- | --- | --- |
+| Confirm physical position | Match every piece with Expected pieces and clear your hand | Records a stable reference for setup or confirms a pending recovery |
+| Check my move | Complete one move and clear your hand | Attempts to record one matching legal move |
+| Physical camera / Expected pieces | Switch between the real image and recorded or recovery target position | Helps you compare the two boards |
+| Resync | Restore the physical board to the **current recorded position**, then confirm | Refreshes the image reference; does not add a move |
+| Undo move | Restore the previous position shown in Expected pieces, then confirm | Removes the last recorded move and refreshes the reference |
+| New game | Arrange the standard starting position, then confirm | Starts a new game and PGN |
+| Save now | Press while the app is running | Saves the PGN and local diagnostic images and metadata |
+| Recover | Enter a missed legal move, compare with the target, then confirm | Records that manually supplied move and refreshes the reference |
+| Cancel | Cancel a pending recovery | Leaves the recorded game unchanged |
 
-Make **one complete physical move at a time**, remove your hand, then press
-**Check my move** in the browser. In a camera window, you can also press `Space`.
-The app collects fresh stable frames and compares the resulting square changes with the legal
-moves for the recorded position and turn. If it accepts a human move, it saves
-the game and reviews the move with Stockfish. On the coach's turn, play the
-displayed suggestion on the physical board, clear your hand, and press **Check my move** again.
-If a different legal move is played for the coach, the app follows the actual
-physical board and notes the difference. A clear out-of-turn move is reported
-and rejected. Rejected changes leave the internal position untouched.
+### Recover a missed move
 
-Moves are recorded only after a check request. Each press checks at most one
-move; a failed check or no detected change ends that request. Finish or correct
-the move, then press the button again. If tracking is lost or the board does
-not settle within a few seconds, the request ends without changing the game.
-For castling, move both the king and rook before checking. After a promotion
-check, choose the promoted piece in the displayed controls.
+If retrying **Check my move** still fails for a completed legal move:
 
-To reset the board, press **New game**, arrange the standard starting position,
-then press **Confirm physical position**. This records a fresh reference and
-starts a new PGN. Checking moves is disabled until setup is confirmed.
+1. Leave the physical board in the position after that move.
+2. In **Only if the camera misses a move**, enter a description such as `pawn from e7 to e5`.
+3. Press **Recover**.
+4. Compare the physical board with **Expected pieces**, including every unaffected piece.
+5. Clear your hand and press **Confirm physical position**.
 
-Pass `--debug-windows` at launch to show the edge, Hough-line, candidate,
-lighting-normalized, warped-board, and square-change diagnostic windows.
-The square-change scores and visual fit are image heuristics, not calibrated
-probabilities.
+The input must describe a legal move for the recorded side to move. Recovery is an explicit statement by you about what happened; the camera does not independently identify every piece during confirmation. **Resync alone never records a missed move.**
 
-## Keys and recovery
+### Keyboard controls
+
+Focus a supporting OpenCV window before using these keys. Keyboard manual entry uses UCI, such as `e2e4`; the browser supports plain language.
 
 | Key | Action |
 | --- | --- |
-| `Space` | Check one completed physical move using the camera. |
-| `q` | Quit; close camera and engine. |
-| `y` at startup | Confirm the physical setup after checking it against the expected FEN in the terminal. |
-| `c` | Click four outer board corners in the **Camera** window, in any order. After the new outline is accepted, confirm a resync with `y`. |
-| `r` | Resync the image baseline to the current recorded position. Arrange every physical piece to match the displayed FEN, clear your hand, then press `y`. |
-| `u` | Undo the last accepted move. Restore the previous physical position, clear your hand, then press `y`. |
-| `n` | Start a new standard game and a new PGN. Set up all physical pieces, clear your hand, then press `y`. |
-| `m` | Record a missed move manually: type UCI such as `e2e4` (or `a7a8q` for promotion), press Enter, check the physical position, then `y`. The move must be legal. |
-| `y` / `Esc` | Confirm / cancel a pending resync, undo, or new game. |
-| `s` | Save PGN now and save camera, edge, candidate, coach, and board screenshots in `debug_captures/`. |
-| `1`–`4` | Confirm a detected promotion as queen, rook, bishop, or knight. |
-| `Enter` | Confirm a displayed rook move that may be an unfinished castle. |
+| `Space` | Check one completed physical move |
+| `q` | Quit and release camera and engine resources |
+| `c` | Click four outer board corners for calibration |
+| `y` | Confirm the physical setup or a pending recovery |
+| `Esc` | Cancel a pending recovery or manual entry |
+| `r` | Request resync |
+| `u` | Request undo |
+| `n` | Request a new standard game |
+| `m` | Enter a missed legal move in UCI; Enter validates, then `y` confirms |
+| `s` | Save the game and camera diagnostics |
+| `1`, `2`, `3`, `4` | Choose queen, rook, bishop, or knight for a detected promotion |
+| `Enter` | Confirm a displayed rook move that could be an unfinished castle |
 
-Resync updates the **image baseline only**; it does not infer missing pieces or
-change the recorded FEN. Use it only after checking that the physical board
-matches the shown position. Undo and new game also depend on you arranging the
-physical pieces first. The `y` confirmation checks for a reliable board outline
-and several stable frames, but does not verify each piece's identity. If the camera moves, recalibrate the
-corners before confirming a resync.
-
-If a completed legal move is missed because an earlier piece adjustment changed
-the image, use **Manual move** to record that one move and refresh the baseline.
-This is an explicit confirmation by you. Resync alone never advances the game.
-While typing a manual move in the camera window, press Esc before other hotkeys.
-
-If automatic board detection misses the playing surface, press `c` and click
-the four outer corners in the Camera window. For a fixed camera, you can also
-provide four pixel coordinates at launch:
-
-```bash
-python main.py --top-color black --board-rotation cw \
-  --corners 560,322 1063,384 1009,883 458,808
-```
-
-Those coordinates came from one 1920×1080 capture and must be recalibrated if
-the camera or board moves. Camera resolution and measured brightness/FPS appear
-in the terminal. The app requests 1920×1080 at 60 FPS and requests 30 FPS if
-the initial high-rate frames are severely underexposed.
+While typing a manual move, press Esc before using other hotkeys.
 
 ## Save and resume
 
-New games are saved automatically to `games/game_<timestamp>.pgn` beside
-`main.py`. Set a specific output path with `--save-pgn /path/to/game.pgn`.
-The PGN contains the initial FEN, human color, full accepted move history, and
-current FEN. Writes replace the file atomically, and a damaged or inconsistent
-game is rejected on resume.
+Accepted moves are saved automatically to `games/game_<timestamp>.pgn` beside `main.py`. A PGN stores the initial position, human color, accepted move history, and current position. The file is replaced atomically, and inconsistent or damaged history is rejected on load.
 
-To continue an earlier game, arrange the physical board to match the PGN's
-**final position**, then run the command below. Check the printed expected FEN
-and press `y` once the physical setup and board outline are correct:
+To continue a game:
+
+1. Find its PGN in `games/`.
+2. Launch with `--resume` using that file's actual name.
+3. Arrange the physical board to match the saved **final position** shown in Expected pieces.
+4. Verify the outline, clear your hand, and confirm the position.
 
 ```bash
-python main.py --resume games/game_YYYYMMDD_HHMMSS_microseconds.pgn \
+./.venv/bin/python main.py \
+  --resume games/game_YYYYMMDD_HHMMSS_microseconds.pgn \
   --board-rotation cw
 ```
 
-The saved human color is restored automatically. You may pass the same
-`--top-color` explicitly, but a conflicting value is rejected. `--resume` and
-`--fen` cannot be combined. The camera records a fresh image baseline for the
-resumed position. The existing PGN is updated after accepted moves unless
-`--save-pgn` points to another file.
+The saved human side is restored automatically. A conflicting `--top-color` is rejected. `--resume` and `--fen` cannot be combined. A fresh image reference is recorded for the resumed position; the existing PGN continues to be updated.
 
-## Detection limits
+Choose another output path with `--save-pgn /path/to/game.pgn`. Chat history stays in memory for the current app session and is not restored from PGN.
 
-The image matcher knows the expected chess position and tests the visual
-footprint of each legal move. It handles ordinary moves, captures, castling,
-en passant, and promotion candidates. Promotions require a key choice because
-different promoted pieces change the same squares. A rook moved first during
-castling may need the king move completed or an explicit `Enter` confirmation.
-
-Tall pieces, shadows, glare, low light, similar-looking capture replacements,
-camera movement, or a stationary obstruction can confuse a visual comparison.
-The app waits for a stable board and rejects weak or ambiguous changes instead
-of guessing. It pauses when board tracking is unreliable. If multiple moves
-occur before one is accepted, restore the last accepted physical position or
-use the recovery controls with the correct setup. Increase
-`--stable-seconds 1.5` for slower hand movements; adjust
-`--change-threshold` only after examining the debug square scores.
-
-Coaching is based on a short local Stockfish search. Its suggested move and
-grade are guidance for the current recorded position, not a guarantee of
-perfect play. The engine never sees the camera image and cannot correct a
-wrong physical setup.
-
-## Tests
+For a known custom starting position, supply its full FEN:
 
 ```bash
-python -m unittest discover -v
+./.venv/bin/python main.py --top-color black --board-rotation cw \
+  --fen "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1"
 ```
 
-Unit tests cover board detection, legal move matching, recovery, PGN storage,
-engine coaching, and the dashboard. Move-check tests verify that a click is
-required, each request records at most one move, failed checks preserve the
-reference, and resetting cancels pending checks. Live camera checks have verified ordinary
-moves, out-of-turn rejection, and a capture on one board and lighting setup;
-other physical boards and lighting may need threshold calibration.
+FEN specifies piece placement, whose turn it is, castling rights, en passant, and move counters. You must arrange and confirm that physical position yourself.
 
-Chat tests cover move recommendations, follow-up explanations, legal hypothetical
-moves, current threats, and stale responses. Local voice tests cover audio
-validation, timeouts, and temporary-file cleanup. HTTP integration tests need
-loopback networking permission when run from Codex's command sandbox.
+## Configuration
+
+Run `./.venv/bin/python main.py --help` for the command-line reference. Unless you use the launcher, the default rotation is `none` and the top color is requested interactively when omitted.
+
+| Option | Default | Purpose |
+| --- | --- | --- |
+| `--top-color white\|black` | Prompt, or saved side when resuming | Human side at the top of the rotated image |
+| `--board-rotation none\|cw\|ccw\|half` | `none` | Rotate the rectified board |
+| `--camera-index N` | `0` | Select the OpenCV camera device |
+| `--corners X,Y X,Y X,Y X,Y` | Automatic detection | Supply four outer board corners in camera pixels |
+| `--stable-seconds N` | `0.9` | Time required for a stable board view |
+| `--change-threshold N` | `0.07` | Base square-change evidence threshold |
+| `--analysis-time N` | `0.25` | Stockfish search time in seconds for move coaching |
+| `--engine-path PATH` | Auto-discovered | Use a specific Stockfish executable |
+| `--chat-port N` | `8765` | Local dashboard port; `0` selects an available port |
+| `--fen FEN` | Standard starting position | Start from a known custom position |
+| `--resume PATH` | New game | Resume a validated PGN |
+| `--save-pgn PATH` | Timestamped file in `games/` | Choose the saved game's path |
+| `--no-engine` | Engine enabled when available | Run tracking without Stockfish coaching |
+| `--no-language-model` | Ollama attempted | Use factual conversation responses |
+| `--no-chat` | Dashboard enabled | Use only the supporting desktop windows |
+| `--debug-windows` | Off | Open image-processing and move-score diagnostics |
+| `--assume-setup` | Off | Skip initial setup confirmation for an already checked position; manual corner calibration still requires confirmation |
+
+Environment variables: `CHESS_COACH_MODEL` selects the Ollama model, `STOCKFISH_EXECUTABLE` selects an engine, and `WHISPER_EXECUTABLE` / `WHISPER_MODEL_PATH` configure local transcription.
+
+Keep the defaults until you understand a detection failure. Increasing `--stable-seconds 1.5` can help with slow hand removal. Inspect saved diagnostics before changing the evidence threshold.
+
+## How recognition works
+
+```mermaid
+flowchart TD
+    A[Confirmed position and reference image] --> D[Compare settled square changes]
+    B[Physical move] --> C[Press Check my move]
+    C --> D
+    D --> E[Match against legal moves for the recorded turn]
+    E -->|Unique complete match| F[Record move and save PGN]
+    E -->|Weak or ambiguous evidence| G[Keep the recorded position unchanged]
+    F --> H[Stockfish analysis and next move]
+    H --> I[Conversational explanation or factual fallback]
+    I --> J[Text reply and optional speech]
+```
+
+1. The board detector and tracker locate the playing surface. Perspective warping produces a rectified image.
+2. Setup confirmation records an image reference for a **known chess position**.
+3. A check waits for fresh stable frames, aligns them to the reference, and compares local image detail. Denoising reduces speckle on dark squares; local brightness processing reduces broad shadow effects.
+4. Legal candidate moves predict which squares should change, including extra squares for castling and en passant.
+5. One sufficiently clear, complete match advances the position and becomes the new reference. Unreliable geometry or insufficient evidence leaves the game unchanged.
+6. Stockfish analyzes the recorded position; conversational and voice layers present that analysis to you.
+
+### Does it recognize a pawn versus a knight?
+
+The current system **tracks pieces from the confirmed position**. It does not classify arbitrary piece identities from an unknown image. If the recorded position has a pawn on e2 and a unique legal change matches e2 to e4, the move is named as a pawn move because the app already knows what was on e2.
+
+Small black dots on pale pieces can improve visual contrast, but identical dots do not encode piece type. Replacing a piece without recording the change can put the physical and recorded boards out of sync. Initial setup and recovery confirmations depend on your piece-by-piece comparison.
+
+### Practical limits
+
+Tall pieces, glare, low light, strong shadows, low-contrast captures, a moved camera, or stationary obstructions can confuse the comparison. Multiple moves before one is recorded can also invalidate the reference. The app pauses or rejects unclear evidence, but its image scores and visual fit are heuristics, not calibrated probabilities.
+
+Engine suggestions and conversational explanations depend on the **recorded** position. Stockfish cannot repair an incorrect physical setup, and a short engine search does not guarantee perfect play. Physical validation has been performed on one board and camera arrangement; other setups may need calibration.
+
+## Troubleshooting
+
+| Symptom | What to check or do |
+| --- | --- |
+| Dashboard cannot connect | Keep `main.py` running and use the address printed in the terminal. For a busy port, use `--chat-port 8766` or `--chat-port 0`. |
+| NumPy or OpenCV import fails | Launch with `./.venv/bin/python`, not an unrelated global Python installation. If needed, reinstall `requirements.txt` with that environment's `python -m pip`. |
+| Webcam will not open | Grant camera access to the application launching Python under macOS System Settings → Privacy & Security → Camera. Close other apps using that device and try `--camera-index N`. A restricted execution environment may also need camera access. |
+| Board outline is missing or wrong | Keep all corners visible, improve lighting, and use `c` to select the outer corners. Recheck orientation and confirm the expected position. |
+| Confirm or Check button is disabled | Setup or recovery may still be pending, the view may not be stable, tracking may be unreliable, or a check may already be running. Read the displayed status. |
+| “No move found” | Complete one move, clear your hand, and check again. Make sure the physical board actually differs from the last recorded position. |
+| “Could not recognize one complete legal move” | Verify the side to move, source and destination, captured pieces, lighting, and camera view. Retry after the board settles; save diagnostics if it persists. |
+| Black piece disappears into a dark square | Improve even lighting and camera exposure. Inspect both the source and destination in the camera view. The matcher includes denoising and captured-board regression coverage for this case. |
+| An out-of-turn move is rejected | Restore the last recorded physical position and move the side named on screen. |
+| Camera or board moved | Recalibrate corners, restore the current recorded position, and confirm a resync. |
+| A legal move remains unrecognized | Use the browser's Recover field for that move and confirm the displayed target. Resync refreshes a reference and does not add a move. |
+| Coach gives only factual or short responses | Check that Ollama is running and `llama3.1:latest` is installed, or set `CHESS_COACH_MODEL` to an installed model. Failed model requests fall back to factual responses. |
+| Stockfish is unavailable | Install it, verify its executable path, and use `--engine-path` if needed. Tracking continues without engine coaching. |
+| Microphone control is unavailable | Run `bash scripts/setup_voice.sh`, restart the coach, and check browser microphone permission and the displayed voice status. |
+| Read-aloud is unavailable | Check FFmpeg and macOS speech availability, or a local browser voice. Text remains available. |
+| Keyboard shortcuts do nothing | Focus a supporting OpenCV window. Browser text fields capture typing. |
+| Saved game is rejected | Check that the file is a complete PGN produced by the app and has consistent setup and move history. Resume a valid copy rather than guessing the position. |
+
+### Collect a useful recognition report
+
+Press **Save now** or `s`. A timestamped group in `debug_captures/` contains the camera frame, rectified board, accepted reference, available comparison frame, supporting diagnostic images, and JSON with the FEN, corners, status, and square scores.
+
+When reporting a failure, include the source and destination, the side to move, the recorded position, the displayed error, and relevant board images. Review camera images before sharing them because the raw frame can include the area around your board.
+
+## Local data and privacy
+
+| Data | Location or lifetime |
+| --- | --- |
+| Accepted game history | `games/*.pgn`, saved automatically |
+| Diagnostic images and metadata | `debug_captures/`, saved on request |
+| Chat history | Memory for the current app session |
+| Microphone recordings and generated server speech | Temporary files removed after processing |
+| English transcription model | `models/ggml-base.en.bin` |
+| Ollama models | Managed separately by Ollama |
+
+The dashboard binds to `127.0.0.1`; it is not a remotely hosted chess service. Board processing, Stockfish, the default local Ollama model, and bundled voice processing run on your Mac. Initial dependency and model setup downloads require internet access. Custom speech integrations or model choices can have different behavior.
+
+`.venv/`, `models/`, `games/`, and `debug_captures/` are excluded from Git. The repository deliberately includes selected documentation screenshots and board-only regression fixtures. Publishing the repository does not publish your running dashboard or automatically upload future games and camera captures.
+
+## Project structure
+
+```text
+ChessAICoach/
+├── main.py                 # Camera loop, calibration, controls, and application startup
+├── board_detector.py       # Board geometry detection and feature tracking
+├── perspective.py          # Corner ordering, board warping, and rotation
+├── move_detector.py        # Stability, visual evidence, and legal move matching
+├── move_language.py        # Plain language move descriptions and recovery input
+├── game_controller.py      # Accepted moves, coaching, recovery, and saves
+├── coach.py                # Stockfish analysis and move review
+├── conversation.py         # Questions, verified position facts, and follow-up context
+├── coach_language.py       # Local Ollama writing and response validation
+├── web_coach.py            # Loopback HTTP server, chat worker, and action queue
+├── web/                    # Browser interface, styles, and optional voice controls
+├── speech.py               # Local transcription and server read-aloud
+├── session_store.py        # Atomic PGN writes and validated loading
+├── recovery.py             # Stable-frame confirmation for setup and recovery
+├── coach_ui.py             # Supporting desktop coach window
+├── scripts/                # Dependency and optional voice setup
+├── docs/screenshots/       # README screenshots
+├── test_fixtures/          # Captured-board recognition regression images
+└── test_*.py               # Automated tests
+```
+
+## Tests and verification
+
+Run the complete suite from the repository root after installing dependencies:
+
+```bash
+./.venv/bin/python -m unittest discover -v
+```
+
+Run the move detector tests alone:
+
+```bash
+./.venv/bin/python -m unittest -v test_move_detector
+```
+
+**Last full-suite verification:** 105 tests passed on October 4, 2026. This is a recorded local result, not a continuous integration badge.
+
+Coverage includes board geometry, legal move footprints, both orientations, button-gated recording, shadows, marked pale pieces, a captured dark-pawn failure, incomplete and out-of-turn moves, promotion choices, recovery, PGN validation, engine analysis, chat context, stale responses, HTTP controls, and bounded voice processing.
+
+The captured-board regression checks Black's pawn from e7 to e5 after White's pawn from e2 to e4. It also verifies that a lifted pawn without a visible destination does not advance the game. Live camera checks verified those two pawn moves on the tested board. Automated tests do not replace validation with another camera, board, or lighting setup.
+
+HTTP tests bind to loopback and therefore need local networking permission in a restricted execution environment. Bundled voice tests use controlled inputs; microphone permission is not needed merely to run the suite.
